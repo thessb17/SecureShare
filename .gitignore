@@ -1,0 +1,99 @@
+# ---------------------------------------------------------------------------
+# SECRETS AND KEY MATERIAL - never commit these
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+keys/*
+!keys/README.md
+nginx/certs/*
+!nginx/certs/README.md
+secrets/
+*credentials*.json
+
+# Encrypted object store and anything a user uploaded
+storage/*
+!storage/.gitkeep
+media/
+uploads/
+
+# Logs (may contain request metadata)
+logs/
+*.log
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+ENV/
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Testing / coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+
+# Security scan artefacts (regenerate with security/run_security_checks.sh)
+backend/security/reports/*
+!backend/security/reports/.gitkeep
+!backend/security/reports/bandit-baseline.json
+
+# Django
+*.sqlite3
+*.sqlite3-journal
+staticfiles/
+celerybeat-schedule*
+celerybeat.pid
+
+# ---------------------------------------------------------------------------
+# Node / frontend (later phase)
+# ---------------------------------------------------------------------------
+node_modules/
+frontend/node_modules/
+.npm
+.pnpm-store/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# ---------------------------------------------------------------------------
+# Editors / OS
+# ---------------------------------------------------------------------------
+.idea/
+.vscode/
+*.tmp
+*.bak
+*.orig
+*.rej
+.env.bak
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db

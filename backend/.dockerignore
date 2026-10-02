@@ -1,0 +1,24 @@
+# Keep secrets, test artefacts and local state out of the build context.
+.env
+.env.*
+*.pem
+*.key
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+security/reports/
+tests/
+staticfiles/
+*.sqlite3
+*.log
+.git/
+.gitignore
+Dockerfile
+.dockerignore

@@ -1,0 +1,29 @@
+line-length = 95
+target-version = "py312"
+exclude = ["migrations", ".venv", "staticfiles"]
+
+[lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # pyflakes
+    "I",         # isort
+    "B",         # bugbear
+    "S",         # flake8-bandit (security)
+    "A",         # builtins shadowing
+    "C4",        # comprehensions
+    "DTZ",       # naive datetimes
+    "T20",       # print statements
+    "SIM",       # simplify
+    "RUF",       # ruff specific
+]
+ignore = [
+    "S101",      # assert: used intentionally in tests
+    "E501",      # long lines handled by the formatter
+    "B008",      # function call in default arg (DRF idiom)
+    "RUF012",    # mutable class attrs (DRF/Django idiom)
+    "SIM105",    # contextlib.suppress not always clearer
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["S105", "S106", "S311", "T20", "DTZ005"]
+"config/settings/*" = ["F403", "F405"]

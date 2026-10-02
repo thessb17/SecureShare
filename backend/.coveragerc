@@ -1,0 +1,21 @@
+[run]
+source = .
+branch = False
+omit =
+    */migrations/*
+    tests/*
+    manage.py
+    config/wsgi.py
+    config/asgi.py
+    */__init__.py
+    */apps.py
+
+[report]
+precision = 1
+show_missing = True
+skip_covered = True
+exclude_lines =
+    pragma: no cover
+    raise NotImplementedError
+    if TYPE_CHECKING:
+    \.\.\.

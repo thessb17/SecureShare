@@ -1,0 +1,180 @@
+# SecureShare - full stack.
+#   docker compose up -d --build
+#   docker compose exec api python manage.py migrate
+#
+# Secrets come from .env (copy .env.example). Nothing sensitive is baked in.
+name: secureshare
+
+x-api-base: &api-base
+  build:
+    context: ./backend
+    dockerfile: Dockerfile
+  image: secureshare/api:0.6.0
+  env_file: [.env]
+  environment:
+    DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.prod}
+    DATABASE_URL: postgresql://${POSTGRES_USER:-secureshare}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-secureshare}
+    REDIS_URL: redis://cache:6379/0
+    CELERY_BROKER_URL: redis://cache:6379/1
+    CELERY_RESULT_BACKEND: redis://cache:6379/2
+    ENCRYPTED_STORAGE_ROOT: /data/storage
+    FILE_UPLOAD_TEMP_DIR: /data/tmp
+    # The repo-relative defaults in .env resolve against the project root,
+    # which is "/" inside the image. Point them at the mounted volumes so
+    # nothing is written into the container filesystem.
+    MEDIA_ROOT: /data/media
+    LOG_DIR: /data/logs
+    STATIC_ROOT: /app/staticfiles
+    RSA_PRIVATE_KEY_PATH: /run/secrets/rsa_private.pem
+    RSA_PUBLIC_KEY_PATH: /run/secrets/rsa_public.pem
+  volumes:
+    - storage_data:/data/storage
+    - logs_data:/data/logs
+    - media_data:/data/media
+    # Keys are mounted read-only. The private key never enters the image.
+    - ./keys/rsa_private.pem:/run/secrets/rsa_private.pem:ro
+    - ./keys/rsa_public.pem:/run/secrets/rsa_public.pem:ro
+  depends_on:
+    db: {condition: service_healthy}
+    cache: {condition: service_healthy}
+  restart: unless-stopped
+  security_opt: ["no-new-privileges:true"]
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-secureshare}
+      POSTGRES_USER: ${POSTGRES_USER:-secureshare}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-secureshare} -d ${POSTGRES_DB:-secureshare}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    # Not published to the host: only the compose network can reach Postgres.
+    expose: ["5432"]
+
+  cache:
+    image: redis:7-alpine
+    # appendonly keeps throttle counters and share-link lockouts across restarts
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --save ""
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    expose: ["6379"]
+
+  api:
+    <<: *api-base
+    container_name: secureshare-api
+    expose: ["8000"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  worker:
+    <<: *api-base
+    container_name: secureshare-worker
+    command: ["celery", "-A", "config", "worker", "--loglevel=info", "--concurrency=2"]
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$$HOSTNAME || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  beat:
+    <<: *api-base
+    container_name: secureshare-beat
+    # Periodic jobs: expire share links, purge soft-deleted ciphertext,
+    # trim audit retention.
+    command: ["celery", "-A", "config", "beat", "--loglevel=info",
+              "--schedule", "/data/logs/celerybeat-schedule"]
+    # Without this, beat inherits the image HEALTHCHECK, which curls :8000 --
+    # a port beat never listens on, so the container is permanently unhealthy.
+    # Two signals: PID 1 is still the scheduler, and it has flushed its
+    # schedule recently. Beat syncs about every 3 min, so 600s avoids flapping
+    # while still catching a wedged scheduler.
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,sys,time; p='/data/logs/celerybeat-schedule'; c=open('/proc/1/cmdline','rb').read(); f=next((x for x in (p,p+'.db',p+'.dat') if os.path.exists(x)), None); sys.exit(0 if (b'beat' in c and f and time.time()-os.path.getmtime(f) < 600) else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: secureshare/frontend:${APP_VERSION:-0.6.0}
+    container_name: secureshare-frontend
+    # Static bundle only: no database, no secrets, no env wiring needed.
+    # Not published to the host; the edge proxy is the only way in.
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    read_only: true
+    # A tmpfs mounts root-owned by default, which would discard the image's
+    # chown and leave nginx (uid 101) unable to create its temp dirs. The
+    # uid/gid options are what make read_only viable here.
+    tmpfs:
+      - /tmp:uid=101,gid=101
+      - /var/cache/nginx:uid=101,gid=101
+      - /var/run:uid=101,gid=101
+    security_opt: ["no-new-privileges:true"]
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: secureshare-nginx
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+      - "${HTTPS_PORT:-8443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      api: {condition: service_healthy}
+      frontend: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  media_data:
+  pg_data:
+  redis_data:
+  storage_data:
+  logs_data:

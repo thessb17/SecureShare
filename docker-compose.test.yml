@@ -1,0 +1,48 @@
+# ---------------------------------------------------------------------------
+# Test profile overlay.  Use ONLY for automated verification runs:
+#
+#   sudo docker compose -f docker-compose.yml -f docker-compose.test.yml up -d
+#
+# Why this file exists
+# --------------------
+# The production rate limits are deliberately tight: nginx allows 5 auth
+# requests per minute per IP, and Django allows 5 registrations per hour. The
+# end-to-end suite issues roughly 136 requests -- including ~15 authentication
+# calls -- in about four seconds. No human behaves that way, so the suite trips
+# the limiter and reports 429 on checks whose actual behaviour is correct.
+#
+# Rather than weaken the shipped configuration, or retry past 429s and risk
+# masking a genuine fault, the two concerns are separated:
+#
+#   * functional behaviour   -> verified with this overlay, limits relaxed,
+#                               against the API directly on port 8100
+#   * the limiter itself     -> verified by scripts/verify_edge.py against the
+#                               UNMODIFIED production stack, which asserts that
+#                               a burst really is rejected with 429
+#
+# Both runs are required. Neither alone is sufficient evidence.
+#
+# This overlay must never be used for a real deployment. It publishes the API
+# port directly, bypassing the TLS edge.
+# ---------------------------------------------------------------------------
+services:
+  api:
+    # Published so the functional suite can bypass nginx's edge limiter.
+    # The production file keeps this port internal.
+    ports:
+      - "127.0.0.1:8100:8000"
+    environment:
+      # Generous ceilings: high enough that a machine-speed suite never trips
+      # them, low enough that a runaway loop still stops eventually.
+      THROTTLE_ANON: "100000/hour"
+      THROTTLE_USER: "100000/hour"
+      THROTTLE_LOGIN: "10000/min"
+      THROTTLE_REGISTER: "10000/hour"
+      THROTTLE_REFRESH: "10000/hour"
+      THROTTLE_PASSWORD_RESET: "10000/hour"
+      THROTTLE_CHANGE_PASSWORD: "10000/hour"
+      THROTTLE_UPLOAD: "10000/hour"
+      THROTTLE_DOWNLOAD: "10000/hour"
+      THROTTLE_SHARE_CREATE: "10000/hour"
+      THROTTLE_SHARE_ACCESS: "10000/hour"
+      THROTTLE_SHARE_DOWNLOAD: "10000/hour"
